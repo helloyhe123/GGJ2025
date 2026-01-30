@@ -2,63 +2,85 @@ using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
-    [Header("参数设置")]
-    public float moveSpeed = 5f;
-    public float jumpForce = 10f;
+    [Header("基础属性")]
+    public float baseMoveSpeed = 5f;
+    public float baseJumpForce = 12f;
 
     [Header("地面检测")]
-    public Transform groundCheckPoint; // 我们等会要创建这个点
+    public Transform groundCheckPoint;
     public float checkRadius = 0.2f;
-    public LayerMask groundLayer;      // 告诉代码什么是地面
+    public LayerMask groundLayer;
 
+    // --- 隐藏变量，由 MaskManager 控制 ---
+    [HideInInspector] public float speedMultiplier = 1f;
+    [HideInInspector] public float jumpMultiplier = 1f;
+
+    // --- 组件引用 ---
     private Rigidbody2D rb;
-    private float moveInput;
+    private Animator anim; // 引用动画控制器
     private bool isGrounded;
+    private float moveInput;
     private bool jumpRequest;
+    private bool facingRight = true;
 
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
+        // 获取子物体上的 Animator (假设 Visuals 是子物体)
+        // 如果 Animator 在父物体上，就用 GetComponent<Animator>()
+        anim = GetComponentInChildren<Animator>();
     }
 
     void Update()
     {
-        // 1. 获取输入 (使用 GetAxisRaw 获得 0, 1, -1 的硬直输入，手感更脆)
+        // 1. 输入
         moveInput = Input.GetAxisRaw("Horizontal");
 
-        // 2. 检测跳跃输入
+        // 2. 跳跃请求
         if (Input.GetButtonDown("Jump") && isGrounded)
         {
             jumpRequest = true;
         }
 
-        // 3. 简单的面朝向翻转 (给美术做准备)
-        if (moveInput > 0) transform.localScale = new Vector3(1, 1, 1);
-        else if (moveInput < 0) transform.localScale = new Vector3(-1, 1, 1);
+        // 3. 翻转角色朝向
+        if (moveInput > 0 && !facingRight) Flip();
+        else if (moveInput < 0 && facingRight) Flip();
+
+        // 4. --- 更新动画参数 (核心) ---
+        // 告诉动画机：水平速度的绝对值 (0就是站立，>0就是跑)
+        anim.SetFloat("Speed", Mathf.Abs(moveInput));
+        // 告诉动画机：是否在地上 (决定是跳跃动画还是落地动画)
+        anim.SetBool("IsGrounded", isGrounded);
+        // 可选：告诉动画机垂直速度 (用于区分起跳和下落)
+        anim.SetFloat("VerticalVelocity", rb.linearVelocity.y);
     }
 
-    // 所有的物理操作必须在 FixedUpdate 里做
     void FixedUpdate()
     {
-        // A. 地面检测
-        // 在脚底下画一个小圆圈，看看有没有碰到 Ground 层
+        // 1. 地面检测
         isGrounded = Physics2D.OverlapCircle(groundCheckPoint.position, checkRadius, groundLayer);
 
-        // B. 左右移动
-        // 这里保留原本的 Y 轴速度，只改变 X 轴
-        // 注意：Unity 6 建议使用 linearVelocity，旧版是用 velocity
-        rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
+        // 2. 移动 (应用倍率)
+        float finalSpeed = baseMoveSpeed * speedMultiplier;
+        rb.linearVelocity = new Vector2(moveInput * finalSpeed, rb.linearVelocity.y);
 
-        // C. 执行跳跃
+        // 3. 跳跃 (应用倍率)
         if (jumpRequest)
         {
-            // 给一个向上的瞬时力
-            rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce); // 直接修改速度比AddForce更精准控制高度
-            jumpRequest = false; // 重置请求
+            float finalJump = baseJumpForce * jumpMultiplier;
+            rb.linearVelocity = new Vector2(rb.linearVelocity.x, finalJump);
+            jumpRequest = false;
         }
     }
 
-    // 在编辑器里画出辅助线，方便你看地面检测范围
+    void Flip()
+    {
+        facingRight = !facingRight;
+        Vector3 scale = transform.localScale;
+        scale.x *= -1;
+        transform.localScale = scale;
+    }
+
     void OnDrawGizmosSelected()
     {
         if (groundCheckPoint != null)
