@@ -129,7 +129,7 @@ GameObject:
   m_Component:
   - component: {fileID: 996196880}
   - component: {fileID: 996196881}
-  m_Layer: 6
+  m_Layer: 0
   m_Name: Square
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1197,7 +1197,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1602179236}
   - component: {fileID: 1602179235}
-  m_Layer: 6
+  m_Layer: 0
   m_Name: Grid
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1244,7 +1244,7 @@ GameObject:
   - component: {fileID: 1770432289}
   - component: {fileID: 1770432288}
   - component: {fileID: 1770432287}
-  m_Layer: 6
+  m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1266,7 +1266,7 @@ MonoBehaviour:
   moveSpeed: 5
   jumpForce: 10
   groundCheckPoint: {fileID: 1862243619}
-  checkRadius: 0.2
+  checkRadius: 0.09
   groundLayer:
     serializedVersion: 2
     m_Bits: 64
@@ -1295,8 +1295,8 @@ Rigidbody2D:
     m_Bits: 0
   m_Interpolate: 0
   m_SleepingMode: 1
-  m_CollisionDetection: 0
-  m_Constraints: 0
+  m_CollisionDetection: 1
+  m_Constraints: 4
 --- !u!61 &1770432289
 BoxCollider2D:
   m_ObjectHideFlags: 0
@@ -1307,7 +1307,7 @@ BoxCollider2D:
   m_Enabled: 1
   serializedVersion: 3
   m_Density: 1
-  m_Material: {fileID: 0}
+  m_Material: {fileID: 6200000, guid: 431bf0b451bef904d9046a957fbd425c, type: 2}
   m_IncludeLayers:
     serializedVersion: 2
     m_Bits: 0
@@ -1369,7 +1369,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1862243619}
-  m_Layer: 6
+  m_Layer: 0
   m_Name: GroundCheck
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1385,7 +1385,7 @@ Transform:
   m_GameObject: {fileID: 1862243618}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.09, y: -0.56, z: 0}
+  m_LocalPosition: {x: -0.021, y: -0.513, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
