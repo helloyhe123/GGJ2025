@@ -1,100 +1,163 @@
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
 
 public class MaskManager : MonoBehaviour
 {
-    // 1. 确保枚举里有 Normal (普通人)
     public enum MaskType { Normal, Hawking, Newton, Einstein, Schrodinger }
 
-    [Header("引用")]
+    [Header("=== 核心组件 ===")]
     public PlayerController player;
     public Animator playerAnimator;
+    public LineRenderer connectionLine;
 
-    [Header("动画控制器资源")]
-    public RuntimeAnimatorController normalAnimController; // 普通人的动画控制器
-    public AnimatorOverrideController hawkingAnimController; // 霍金的 Override Controller
-    // 其他科学家的 Controller...
+    [Header("=== 动画控制器 ===")]
+    public RuntimeAnimatorController normalAnimController;
+    public AnimatorOverrideController hawkingAnimController;
+    public AnimatorOverrideController einsteinAnimController;
+    public AnimatorOverrideController newtonAnimController;
 
-    [Header("霍金能力参数")]
-    public float hawkingSpeedMult = 1.8f;
-    public float hawkingJumpMult = 0.8f;
-
-    [Header("设置")]
+    [Header("=== 设置 ===")]
     public float switchCooldown = 0.5f;
     public float residualTime = 4.0f;
 
+    [Header("=== 霍金 (H) ===")]
+    public float hawkingSpeedMult = 1.8f;
+    public float hawkingJumpMult = 0.8f;
+
+    [Header("=== 爱因斯坦 (E) ===")]
+    public float einsteinMaxDuration = 10f;
+    public LayerMask blockLayer;
+
+    [Header("=== 牛顿 (N) ===")]
+    public GameObject conveyorPrefab;
+    public int maxBeltLength = 5;
+    public float drawRange = 2.5f;
+
+    // --- 内部状态 ---
     private MaskType currentMask = MaskType.Normal;
     private float lastSwitchTime = -99f;
 
     // 状态标记
     private bool isHawkingActive = false;
+    private bool isEinsteinActive = false;
+    private bool isNewtonActive = false;
+
+    // 协程引用
     private Coroutine hawkingDisableCoroutine;
+    private Coroutine einsteinDisableCoroutine;
+    private Coroutine newtonDisableCoroutine;
+
+    // 能力变量
+    private RelativityBlock currentBlock;
+    private float einsteinTimer = 0f;
+    private List<GameObject> activeBelt = new List<GameObject>();
+    private bool isDrawingBelt = false;
 
     void Update()
     {
-        // 检查冷却
         if (Time.time - lastSwitchTime < switchCooldown) return;
 
-        // --- 监听按键 ---
+        // --- 按键切换 ---
         if (Input.GetKeyDown(KeyCode.H)) SwitchMask(MaskType.Hawking);
+        else if (Input.GetKeyDown(KeyCode.E)) SwitchMask(MaskType.Einstein);
+        else if (Input.GetKeyDown(KeyCode.N)) SwitchMask(MaskType.Newton);
+        else if (Input.GetKeyDown(KeyCode.O)) SwitchMask(MaskType.Normal); // 触发重置
 
-        // ★★★ 新增：按 O 键变回普通人 ★★★
-        else if (Input.GetKeyDown(KeyCode.O)) SwitchMask(MaskType.Normal);
+        
 
-        // 其他按键...
-        // else if (Input.GetKeyDown(KeyCode.N)) SwitchMask(MaskType.Newton);
+        // 1. 爱因斯坦输入 (只有戴着面具时)
+        if (currentMask == MaskType.Einstein)
+        {
+            HandleEinsteinInput();
+            HandleEinsteinDeathTimer();
+        }
+
+        
+        if (isEinsteinActive) UpdateConnectionLine();
+        else if (connectionLine) connectionLine.enabled = false;
+
+        
+        if (currentMask == MaskType.Newton)
+        {
+            HandleNewtonInput();
+        }
+    }
+
+    void FixedUpdate()
+    {
+        
+        if (isEinsteinActive && currentBlock != null)
+        {
+            ApplyRelativityPhysics();
+        }
     }
 
     void SwitchMask(MaskType newMask)
     {
-        if (currentMask == newMask) return; // 如果已经是普通人，按O就不重复触发
+        if (currentMask == newMask) return;
 
-        Debug.Log($"切换面具: {currentMask} -> {newMask}");
+        //  切换到normal的时候会把其他能力都切换掉
+        if (newMask == MaskType.Normal)
+        {
+            Debug.Log(">>> 强制重置所有能力 (按O) <<<");
+            ResetAllAbilities();
+            UpdateAnimator(MaskType.Normal);
+            currentMask = MaskType.Normal;
+            lastSwitchTime = Time.time;
+            return;
+        }
 
-        // 1. 处理旧面具残留 (如果你是从霍金切回普通人，霍金加速会残留4秒)
+        // 正常的切换逻辑 (带残留)
         DeactivateMaskDelayed(currentMask);
-
-        // 2. 激活新面具 (普通人没有特殊数值，所以什么都不用做，只要把旧的残留处理好就行)
         ActivateMaskImmediate(newMask);
-
-        // 3. 切换动画/外观 (立刻变回普通人走路的样子)
         UpdateAnimator(newMask);
 
         currentMask = newMask;
         lastSwitchTime = Time.time;
     }
 
-    void UpdateAnimator(MaskType type)
+    // 
+    void ResetAllAbilities()
     {
-        switch (type)
-        {
-            case MaskType.Normal:
-                // ★★★ 变回普通人时，使用基础控制器 ★★★
-                if (normalAnimController != null)
-                    playerAnimator.runtimeAnimatorController = normalAnimController;
-                break;
+        // 1. 
+        StopAllCoroutines();
 
-            case MaskType.Hawking:
-                if (hawkingAnimController != null)
-                    playerAnimator.runtimeAnimatorController = hawkingAnimController;
-                break;
-        }
+        // 2. 
+        isHawkingActive = false;
+        isEinsteinActive = false;
+        isNewtonActive = false;
+
+        // 3. 
+        ClearBelt();
+        isDrawingBelt = false;
+
+        // 4. 
+        DeselectBlock();
+        einsteinTimer = 0f;
+
+        // 5. 重置数值
+        ApplyStats();
     }
 
+  
     void ActivateMaskImmediate(MaskType type)
     {
         switch (type)
         {
-            case MaskType.Normal:
-                // 普通人没有任何特殊能力要激活
-                // 这里什么都不用写，逻辑会自动回到 ApplyStats 的默认值 1.0
-                break;
-
             case MaskType.Hawking:
-                // 如果正在残留倒计时，取消倒计时，视为“续费”
                 if (hawkingDisableCoroutine != null) StopCoroutine(hawkingDisableCoroutine);
                 isHawkingActive = true;
                 ApplyStats();
+                break;
+            case MaskType.Einstein:
+                if (einsteinDisableCoroutine != null) StopCoroutine(einsteinDisableCoroutine);
+                isEinsteinActive = true;
+                einsteinTimer = 0f;
+                break;
+            case MaskType.Newton:
+                if (newtonDisableCoroutine != null) StopCoroutine(newtonDisableCoroutine);
+                isNewtonActive = true;
                 break;
         }
     }
@@ -103,44 +166,163 @@ public class MaskManager : MonoBehaviour
     {
         switch (type)
         {
-            case MaskType.Normal:
-                // 普通人没有“残留能力”，切走就切走了
-                break;
-
             case MaskType.Hawking:
-                // 霍金切走时，开启4秒残留
                 if (hawkingDisableCoroutine != null) StopCoroutine(hawkingDisableCoroutine);
                 hawkingDisableCoroutine = StartCoroutine(DisableHawkingRoutine());
                 break;
+            case MaskType.Einstein:
+                if (einsteinDisableCoroutine != null) StopCoroutine(einsteinDisableCoroutine);
+                einsteinDisableCoroutine = StartCoroutine(DisableEinsteinRoutine());
+                break;
+            case MaskType.Newton:
+                if (newtonDisableCoroutine != null) StopCoroutine(newtonDisableCoroutine);
+                newtonDisableCoroutine = StartCoroutine(DisableNewtonRoutine());
+                break;
         }
     }
 
-    IEnumerator DisableHawkingRoutine()
+    // 协程
+    IEnumerator DisableHawkingRoutine() { yield return new WaitForSeconds(residualTime); isHawkingActive = false; ApplyStats(); }
+    IEnumerator DisableEinsteinRoutine() { yield return new WaitForSeconds(residualTime); isEinsteinActive = false; DeselectBlock(); }
+    IEnumerator DisableNewtonRoutine()
     {
-        // 保持霍金能力开启 4秒
         yield return new WaitForSeconds(residualTime);
-
-        // 4秒后关闭
-        isHawkingActive = false;
-        ApplyStats(); // 更新数值
-        Debug.Log("霍金残留效果结束");
+        isNewtonActive = false;
+        ClearBelt();
+        Debug.Log("牛顿残留结束，传送带消失");
     }
 
+    
     void ApplyStats()
     {
-        // 每次计算前先重置为 1.0 (普通人状态)
         float speed = 1f;
         float jump = 1f;
-
-        // 如果霍金还激活着 (无论是戴着面具，还是处于残留期)
-        if (isHawkingActive)
-        {
-            speed *= hawkingSpeedMult;
-            jump *= hawkingJumpMult;
-        }
-
-        // 应用到主角脚本
+        if (isHawkingActive) { speed *= hawkingSpeedMult; jump *= hawkingJumpMult; }
         player.speedMultiplier = speed;
         player.jumpMultiplier = jump;
+    }
+
+    void ApplyRelativityPhysics()
+    {
+        Rigidbody2D playerRb = player.GetComponent<Rigidbody2D>();
+        Rigidbody2D blockRb = currentBlock.GetComponent<Rigidbody2D>();
+
+        Vector2 playerVel = playerRb.linearVelocity;
+        Vector2 beltVel = currentBlock.conveyorVelocity;
+
+        // 方块速度：X轴相对论 + 传送带；Y轴只受传送带或强制0
+        float targetBlockX = -playerVel.x + beltVel.x;
+        float targetBlockY = 0f;
+
+        // 检查玩家是否落地 (解决自动上飘Bug)
+        if (player.isGrounded) targetBlockY = beltVel.y; // 地上：只受传送带
+        else targetBlockY = -playerVel.y + beltVel.y;    // 空中：相对论 + 传送带
+
+        blockRb.linearVelocity = new Vector2(targetBlockX, targetBlockY);
+
+        // 玩家反作用力：只取 X 轴
+        player.externalVelocity = new Vector2(-beltVel.x, 0f);
+    }
+
+    // --- 爱因斯坦辅助 ---
+    void HandleEinsteinInput()
+    {
+        if (Input.GetMouseButtonDown(1))
+        {
+            if (currentBlock != null) DeselectBlock();
+            else
+            {
+                Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+                RaycastHit2D hit = Physics2D.Raycast(mousePos, Vector2.zero, 0.1f, blockLayer);
+                if (hit.collider != null)
+                {
+                    RelativityBlock block = hit.collider.GetComponent<RelativityBlock>();
+                    if (block != null) SelectBlock(block);
+                }
+            }
+        }
+    }
+
+    void HandleEinsteinDeathTimer()
+    {
+        einsteinTimer += Time.deltaTime;
+        if (einsteinTimer > einsteinMaxDuration) SwitchMask(MaskType.Normal);
+    }
+
+    void SelectBlock(RelativityBlock block) { currentBlock = block; currentBlock.OnSelect(); }
+    void DeselectBlock() { if (currentBlock != null) { currentBlock.OnDeselect(); currentBlock = null; } }
+
+    void UpdateConnectionLine()
+    {
+        if (currentBlock != null && connectionLine != null)
+        {
+            connectionLine.enabled = true;
+            connectionLine.SetPosition(0, player.transform.position + Vector3.up * 0.5f);
+            connectionLine.SetPosition(1, currentBlock.transform.position);
+        }
+    }
+
+    // --- 牛顿绘制辅助 ---
+    void HandleNewtonInput()
+    {
+        Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition); mousePos.z = 0;
+        if (Input.GetMouseButtonDown(0) && Vector3.Distance(player.transform.position, mousePos) <= drawRange) StartDrawingBelt(mousePos);
+        if (Input.GetMouseButton(0) && isDrawingBelt) ContinueDrawingBelt(mousePos);
+        if (Input.GetMouseButtonUp(0)) isDrawingBelt = false;
+    }
+
+    void StartDrawingBelt(Vector3 startPos)
+    {
+        ClearBelt();
+        Vector3Int gridPos = Vector3Int.RoundToInt(startPos);
+        CreateBeltSegment(gridPos);
+        isDrawingBelt = true;
+    }
+
+    void ContinueDrawingBelt(Vector3 currentPos)
+    {
+        if (activeBelt.Count >= maxBeltLength) return;
+        Vector3Int gridPos = Vector3Int.RoundToInt(currentPos);
+        GameObject lastSegmentObj = activeBelt[activeBelt.Count - 1];
+        Vector3Int lastGridPos = Vector3Int.RoundToInt(lastSegmentObj.transform.position);
+        if (gridPos == lastGridPos) return;
+
+        int dist = Mathf.Abs(gridPos.x - lastGridPos.x) + Mathf.Abs(gridPos.y - lastGridPos.y);
+        if (dist == 1)
+        {
+            Vector2 direction = (Vector3)(gridPos - lastGridPos);
+            ConveyorSegment lastScript = lastSegmentObj.GetComponent<ConveyorSegment>();
+            lastScript.pushDirection = direction;
+            float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+            lastSegmentObj.transform.rotation = Quaternion.Euler(0, 0, angle);
+
+            CreateBeltSegment(gridPos);
+            activeBelt[activeBelt.Count - 1].GetComponent<ConveyorSegment>().pushDirection = direction;
+            activeBelt[activeBelt.Count - 1].transform.rotation = Quaternion.Euler(0, 0, angle);
+        }
+    }
+
+    void CreateBeltSegment(Vector3Int pos)
+    {
+        if (conveyorPrefab == null) return;
+        GameObject newSeg = Instantiate(conveyorPrefab, pos, Quaternion.identity);
+        activeBelt.Add(newSeg);
+    }
+
+    void ClearBelt()
+    {
+        foreach (var seg in activeBelt) if (seg != null) Destroy(seg);
+        activeBelt.Clear();
+    }
+
+    void UpdateAnimator(MaskType type)
+    {
+        switch (type)
+        {
+            case MaskType.Normal: if (normalAnimController) playerAnimator.runtimeAnimatorController = normalAnimController; break;
+            case MaskType.Hawking: if (hawkingAnimController) playerAnimator.runtimeAnimatorController = hawkingAnimController; break;
+            case MaskType.Einstein: if (einsteinAnimController) playerAnimator.runtimeAnimatorController = einsteinAnimController; break;
+            case MaskType.Newton: if (newtonAnimController) playerAnimator.runtimeAnimatorController = newtonAnimController; break;
+        }
     }
 }
